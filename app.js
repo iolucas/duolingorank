@@ -13,6 +13,28 @@ var db = new neo4j('http://neo4j:lucas@localhost:7474');
 //Define constraints
 var modulePathConstraint = "CREATE CONSTRAINT ON (user:User) ASSERT user.username IS UNIQUE";
 
+//Create error log file
+var errorLog = "------------ DuolingoRank Error Log ------------\r\n\r\n\r\n";
+var errorLogFileName = "logs/error_log_" + Math.random()*1000 + ".txt";
+fs.writeFileSync(errorLogFileName, errorLog);
+
+var writeErrorLog = function(log) {
+    if(log == null)
+        return;
+
+    var logText;
+    
+    try {
+        logText = JSON.stringify(log);
+    } catch (e){
+        logText = log;
+    } finally {
+        //errorLog += logText + "\r\n\r\n\r\n";
+        fs.appendFileSync(errorLogFileName, logText + "\r\n\r\n\r\n");
+    }
+    
+}
+
 print("Initing db...")
 //Execute constraint set query
 db.cypherQuery(modulePathConstraint, function(err) {
@@ -22,10 +44,15 @@ db.cypherQuery(modulePathConstraint, function(err) {
         print("Db initiated");
         //main(process.argv);
 
-        crawlUserCollection(["LucasVieir848760"], function() {
-            console.log("DONE ALL");
+        getEmptyUsers(process.argv[2], function(err, emptyUsers) {
+            
+            crawlUserCollection(emptyUsers, function() {
+                console.log("DONE ALL");
+            });
 
         });
+
+
     }
 });
 
@@ -108,6 +135,8 @@ function main() {
             }
 
             var userObj = JSON.parse(body);
+
+            console.log(userObj);
 
             //Create query to add user to db
 
@@ -226,6 +255,20 @@ function main() {
 }
 
 
+function getEmptyUsers(limit, callback) {
+
+    var neoQuery = "MATCH (u:User) WHERE u.id IS NULL RETURN u LIMIT " + limit;
+
+    db.cypherQuery(neoQuery, function(err, result) {
+        var emptyUsers = [];
+
+        for(var i = 0; i < result.data.length; i++)
+            emptyUsers.push(result.data[i].username);    
+
+        callback(err, emptyUsers);
+    });
+
+}
 
 
 //Crawl any collection of duolingo users urls
@@ -277,6 +320,8 @@ function crawlUserCollection(userCollection, callback) {
 
             var userObj = JSON.parse(body);
 
+            console.log(userObj);
+
             //Download user friendships data
             //https://www.duolingo.com/friendships/26560174
             request("https://www.duolingo.com/friendships/" + userObj.id, function(error, response, body) {
@@ -296,7 +341,7 @@ function crawlUserCollection(userCollection, callback) {
                     doneQty++;
                     if(err) {
                         var errorString = getErrorString(err, 
-                            "Error while adding data to database from user " + articleTitle + ": ");
+                            "Error while adding data to database from user " + username + ": ");
                         print(errorString);
                         writeErrorLog(errorString);
                     } else {
@@ -308,17 +353,11 @@ function crawlUserCollection(userCollection, callback) {
                 //Call the task finish callback
                 taskCallback(null, userUrl);
 
-                //Push user data
-                // userData[userObj.username] = userObj;
-
-                // numberOfDone++;
-
-                // callback();
             });
 
         });
 
-    }, 1);
+    }, 5);
 
     //Callback to be called when the wikipages queue are empty
     userQueue.drain = function() {
@@ -326,7 +365,7 @@ function crawlUserCollection(userCollection, callback) {
         userCollectionEmptyFlag = true;
     }
 
-    userQueue.push(userCollection, function(err, userUrl){
+    userQueue.push(userCollection, function(err, userUrl) {
         if(err) {
             var errorString = getErrorString(err, "Error while downloading page: " + userUrl);
             console.log(errorString);
@@ -337,6 +376,7 @@ function crawlUserCollection(userCollection, callback) {
     });
 }
 
+some database bug is happening, must change the db
 
 // addUserDataToDb(userObj, lang, function(err) {
 //     taskCallback(err, userObj.username);
@@ -367,47 +407,44 @@ function addUserDataToDb(userObj, callback) {
 
     var addUserQuery = "";
 
+
+    var maxUserConnections = 10000;
+
     //Iterate thru user followers
-    for(var i = 0; i < userObj.followers.length; i++) {
+    var followersLength = userObj.followers.length > maxUserConnections ? maxUserConnections : userObj.followers.length;
+    for(var i = 0; i < followersLength; i++) {
         var follower = userObj.followers[i].username;
         addUserQuery += "MERGE (:User {username:'" + follower +"'}) ";
-
-        //Create query to add this user to the pendent users
-
-        // if(userData[follower] == undefined && numberOfDone < 5) {
-        //     userData[follower] = true;
-        //     asyncQueue.push(follower); //Push username to the queue
-        // }
     }
 
     //Iterate thru user followings
-    for(var i = 0; i < userObj.following.length; i++) {
+    var followingLength = userObj.following.length > maxUserConnections ? maxUserConnections : userObj.following.length;
+    for(var i = 0; i < followingLength; i++) {
         var following = userObj.following[i].username;
         addUserQuery += "MERGE (:User {username:'" + following + "'}) ";
-
-        // if(userData[following] == undefined && numberOfDone < 5) {
-        //     userData[following] = true;
-        //     asyncQueue.push(following); //Push username to the queue
-        // }
     }
 
+    
+
     var neoQuery = [createOrMatchQuery, createQuery, addUserQuery].join(" ");
-    //console.log(neoQuery);
 
     //console.log(neoQuery);
-
-    //console.log("Done with " + userUrl + ".");
-
-    // callback();
-    // return;
-
-    // keep working on duolingo rank 
-    // it wont take so much time and can return a lot of views 
-    // create an async op to download and another to register on the db
 
     db.cypherQuery(neoQuery, function(err, result) {
+        console.log("AE");
         callback(err);
     });    
+}
+
+function getErrorString(errorObj, errorMsg) {
+    var errorString;
+    try {
+        errorString = JSON.stringify(errorObj);
+    } catch(e) {
+        errorString = errorObj;
+    } finally {
+        return errorMsg + errorString;
+    }
 }
 
 
