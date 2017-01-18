@@ -24,6 +24,7 @@
   "homepage": "https://github.com/lucasolivier/duolingorank#readme",
   "dependencies": {
     "async": "^2.1.1",
+    "moment-timezone": "^0.5.7",
     "node-neo4j": "^2.0.3",
     "request": "^2.75.0"
   }

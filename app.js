@@ -4,11 +4,13 @@ var fs = require("fs");
 var async = require("async");
 var neo4j = require('node-neo4j');
 
+var dbconnection = require("./dbmodule.js");
+
 //Utils
 var print = console.log;
 
 //Connect to db
-var db = new neo4j('http://neo4j:lucas@localhost:7474');
+//var db = new neo4j('http://neo4j:lucas@localhost:7474');
 
 //Define constraints
 var modulePathConstraint = "CREATE CONSTRAINT ON (user:User) ASSERT user.username IS UNIQUE";
@@ -37,24 +39,58 @@ var writeErrorLog = function(log) {
 
 print("Initing db...")
 //Execute constraint set query
-db.cypherQuery(modulePathConstraint, function(err) {
-    if(err)
-        print(err);
-    else {
-        print("Db initiated");
-        //main(process.argv);
 
-        getEmptyUsers(process.argv[2], function(err, emptyUsers) {
-            
-            crawlUserCollection(emptyUsers, function() {
-                console.log("DONE ALL");
-            });
+dbconnection.init(function(err) {
 
-        });
-
-
+    if(err) {
+        console.log(err);
+        return;
     }
+
+    print("Db initiated");
+
+    /*dbconnection.list({id: null}, function(err, result) {
+        console.log(result);
+
+
+
+    });*/
+
+    crawlUserCollection(['LucasVieir848760'], function() {
+        console.log("DONE FIRST");
+    });
+    
+    // getEmptyUsers(process.argv[2] || 100, function(err, emptyUsers) {
+        
+    //     crawlUserCollection(emptyUsers, function() {
+    //         console.log("DONE ALL");
+    //     });
+
+    // });
+
 });
+
+
+
+
+// db.cypherQuery(modulePathConstraint, function(err) {
+//     if(err)
+//         print(err);
+//     else {
+//         print("Db initiated");
+//         //main(process.argv);
+
+//         getEmptyUsers(process.argv[2] || 100, function(err, emptyUsers) {
+            
+//             crawlUserCollection(emptyUsers, function() {
+//                 console.log("DONE ALL");
+//             });
+
+//         });
+
+
+//     }
+// });
 
 var fields = [
     //'language_data',
@@ -286,7 +322,8 @@ function crawlUserCollection(userCollection, callback) {
     var databaseQueue = async.queue(function(userObj, taskCallback) {
         
         //Add this pageInfo data to the database
-        addUserDataToDb(userObj, function(err) {
+        //addUserDataToDb(userObj, function(err) {
+        insertDataToMongoDb(userObj, fields, function(err) {
             taskCallback(err, userObj.username);
         });
 
@@ -376,7 +413,7 @@ function crawlUserCollection(userCollection, callback) {
     });
 }
 
-some database bug is happening, must change the db
+//some database bug is happening, must change the db
 
 // addUserDataToDb(userObj, lang, function(err) {
 //     taskCallback(err, userObj.username);
@@ -434,6 +471,47 @@ function addUserDataToDb(userObj, callback) {
         console.log("AE");
         callback(err);
     });    
+}
+
+keep working on database implementation
+
+function insertDataToMongoDb(userObj, fields, callback) {
+
+    var maxUserConnections = 10000;
+
+    var followersLength = userObj.followers.length > maxUserConnections ? maxUserConnections : userObj.followers.length;
+    for(var i = 0; i < followersLength; i++) {
+        var follower = userObj.followers[i].username;
+        addUserQuery += "MERGE (:User {username:'" + follower +"'}) ";
+    }
+
+    //Iterate thru user followings
+    var followingLength = userObj.following.length > maxUserConnections ? maxUserConnections : userObj.following.length;
+    for(var i = 0; i < followingLength; i++) {
+        var following = userObj.following[i].username;
+        addUserQuery += "MERGE (:User {username:'" + following + "'}) ";
+    }
+
+
+    //Get fields from data
+    var filteredData = {}
+
+    for(var i = 0; i < fields.length; i++) {
+        var field = fields[i];
+
+        if(data.hasOwnProperty(field))
+            filteredData[field] = data[field];
+    }
+
+    console.log(filteredData);
+    
+
+    dbconnection.insert(filteredData, function(err) {
+        if(err)
+            console.log(err);
+
+        callback();
+    });
 }
 
 function getErrorString(errorObj, errorMsg) {
